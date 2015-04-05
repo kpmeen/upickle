@@ -2,14 +2,10 @@ crossScalaVersions := Seq("2.10.4", "2.11.4")
 
 val upickle = crossProject.settings(
   organization := "com.lihaoyi",
-  version := "0.2.8",
-  scalaVersion := "2.10.4",
+  version := "0.2.8.2-SNAPSHOT",
+  scalaVersion := "2.11.5",
   name := "upickle",
-  scalacOptions := Seq("-unchecked",
-    "-deprecation",
-    "-encoding", "utf8",
-    "-feature"),
-
+  scalacOptions := Seq("-unchecked","-deprecation","-encoding", "utf8","-feature"),
   // Sonatype
   publishArtifact in Test := false,
   publishTo <<= version { (v: String) =>
@@ -44,7 +40,6 @@ val upickle = crossProject.settings(
       val caseReader =
         if(i == 1) s"f(readJs[Tuple1[T1]](x)._1)"
         else s"f.tupled(readJs[Tuple$i[$typeTuple]](x))"
-
       (s"""
         implicit def Tuple${i}W[$writerTypes] = W[Tuple${i}[$typeTuple]](
           x => Js.Arr($written)
@@ -56,15 +51,12 @@ val upickle = crossProject.settings(
         def Case${i}R[$readerTypes, V]
                      (f: ($typeTuple) => V, names: Array[String], defaults: Array[Js.Value])
           = RCase[V](names, defaults, {case x => $caseReader})
-
         def Case${i}W[$writerTypes, V]
                      (g: V => Option[Tuple${i}[$typeTuple]], names: Array[String], defaults: Array[Js.Value])
           = WCase[V](names, defaults, x => writeJs(g(x).get))
         """)
     }
-
     val (tuples, cases) = tuplesAndCases.unzip
-
     IO.write(file, s"""
         package upickle
         import acyclic.file
@@ -75,7 +67,6 @@ val upickle = crossProject.settings(
          */
         trait Generated extends Types with GeneratedUtil{
           import Aliases._
-
           ${tuples.mkString("\n")}
         }
         trait GeneratedInternal extends Generated{
