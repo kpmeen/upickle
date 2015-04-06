@@ -29,6 +29,9 @@ private[upickle] trait GeneratedUtil {
 
   }
   private[this] def mapToArray(o: Js.Obj, names: Array[String], defaults: Array[Js.Value]) = {
+
+//    println("o",o,"names",names.mkString(","),"defaults",defaults.toList)
+
     val accumulated = new Array[Js.Value](names.length)
     val map = o.value.toMap
     var i = 0
@@ -36,7 +39,7 @@ private[upickle] trait GeneratedUtil {
     while(i < l){
       if (map.contains(names(i))) accumulated(i) = map(names(i))
       else if (defaults(i) != null) accumulated(i) = defaults(i)
-      else throw new Invalid.Data(o, "Key Missing: " + names(i))
+      else accumulated(i) = Js.Null
       i += 1
     }
     Js.Arr(accumulated:_*)
