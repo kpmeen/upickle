@@ -126,7 +126,7 @@ trait Implicits extends Types { imp: Generated =>
   implicit val ByteRW = NumericReadWriter(_.toByte, _.toByte)
   implicit val ShortRW = NumericReadWriter(_.toShort, _.toShort)
   implicit val IntRW = NumericReadWriter(_.toInt, _.toInt)
-  implicit val LongRW = NumericStringReadWriter[Long](_.toLong)
+  implicit val LongRW = NumericReadWriter(_.toLong,_.toLong)
   implicit val FloatRW = NumericReadWriter(_.toFloat, _.toFloat)
   implicit val DoubleRW = NumericReadWriter(_.toDouble, _.toDouble)
 
@@ -147,12 +147,15 @@ trait Implicits extends Types { imp: Generated =>
     Internal.validate("Array(n)"){case Js.Arr(x@_*) => f(x.map(readJs[T]))}
   )
 
-  implicit def OptionW[T: W]: W[Option[T]] = SeqLikeW[T, Option](x => Some(x.toSeq))
-  implicit def SomeW[T: W] = W[Some[T]](OptionW[T].write)
-  implicit def NoneW: W[None.type] = W[None.type](OptionW[Int].write)
-  implicit def OptionR[T: R]: R[Option[T]] = SeqLikeR[T, Option](_.headOption)
-  implicit def SomeR[T: R] = R[Some[T]](OptionR[T].read andThen (_.asInstanceOf[Some[T]]))
-  implicit def NoneR: R[None.type] = R[None.type](OptionR[Int].read andThen (_.asInstanceOf[None.type]))
+  implicit def OptionW[T: W]: W[Option[T]] = W[Option[T]]{
+    case Some(value) => writeJs[T](value)
+    case None => Js.Null
+  }
+
+  implicit def OptionR[T: R]: R[Option[T]] = R[Option[T]]{
+    case Js.Null => None
+    case value => Some(readJs[T](value))
+  }
 
   implicit def ArrayW[T: W] = SeqLikeW[T, Array](Array.unapplySeq)
   implicit def ArrayR[T: R: ClassTag] = SeqLikeR[T, Array](x => Array.apply(x:_*))
