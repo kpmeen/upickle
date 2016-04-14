@@ -1,12 +1,10 @@
 package upickle
 
 
+import upickle.Js.Value
 
 import scala.reflect.ClassTag
-import scala.util.{Failure, Success}
-import scala.collection.SortedSet
 import scala.concurrent.duration.{FiniteDuration, Duration}
-import scala.reflect.macros.Context
 import acyclic.file
 import scala.language.higherKinds
 import scala.language.experimental.macros
@@ -49,10 +47,13 @@ trait Implicits extends Types { imp: Generated =>
       case t: T => f(t)
     }
 
+    def validate[T](name: String)(pf: PartialFunction[Js.Value, T]) = new PartialFunction[Js.Value, T] {
+      def isDefinedAt(x: Value) = pf.isDefinedAt(x)
 
-
-    def validate[T](name: String)(pf: PartialFunction[Js.Value, T]): PartialFunction[Js.Value, T] = {
-      pf.orElse { case x => throw Invalid.Data(x, name) }
+      def apply(v1: Value): T = pf.applyOrElse(v1, (x: Js.Value) => throw Invalid.Data(x, name))
+    }
+    def validateReader[T](name: String)(r: => Reader[T]): Reader[T] = new Reader[T]{
+      override def read0 = validate(name)(r.read)
     }
   }
 
@@ -89,22 +90,24 @@ trait Implicits extends Types { imp: Generated =>
     }
   }
 
-  private[this] def numericStringReaderFunc[T](func: String => T): JPF[T] = Internal.validate("Number"){
+  private[this] def numericStringReaderFunc[T](func: String => T): JPF[T] = Internal.validate("String"){
     case x: Js.Str => func(x.value)
   }
   private[this] def NumericStringReadWriter[T](func: String => T) = RW[T](
     x => Js.Str(x.toString),
     numericStringReaderFunc[T](func)
   )
-  private[this] def numericReaderFunc[T: Numeric](func: Double => T, func2: String => T): JPF[T] = Internal.validate("Number"){
+  private[this] def numericReaderFunc[T: Numeric](func: Double => T, func2: String => T): JPF[T] = Internal.validate("Number or String"){
     case n @ Js.Num(x) => try{func(x) } catch {case e: NumberFormatException => throw Invalid.Data(n, "Number")}
     case s @ Js.Str(x) => try{func2(x) } catch {case e: NumberFormatException => throw Invalid.Data(s, "Number")}
   }
 
   private[this] def NumericReadWriter[T: Numeric](func: Double => T, func2: String => T): RW[T] = RW[T](
-    {
+   {
       case x @ Double.PositiveInfinity => Js.Str(x.toString)
       case x @ Double.NegativeInfinity => Js.Str(x.toString)
+      case x: Double if java.lang.Double.isNaN(x) => Js.Str(x.toString)
+      case x: Float if java.lang.Double.isNaN(x) => Js.Str(x.toString)
       case x => Js.Num(implicitly[Numeric[T]].toDouble(x))
     },
     numericReaderFunc[T](func, func2)
@@ -131,12 +134,12 @@ trait Implicits extends Types { imp: Generated =>
   implicit val DoubleRW = NumericReadWriter(_.toDouble, _.toDouble)
 
   import collection.generic.CanBuildFrom
-  implicit def SeqishR[V[_], T: R]
-                       (implicit cbf: CanBuildFrom[Nothing, T, V[T]]): R[V[T]] = R[V[T]](
+  implicit def SeqishR[V[_], T]
+                       (implicit cbf: CanBuildFrom[Nothing, T, V[T]], r: R[T]): R[V[T]] = R[V[T]](
     Internal.validate("Array(n)"){case Js.Arr(x@_*) => x.map(readJs[T]).to[V]}
   )
 
-  implicit def SeqishW[T: W, V[_] <: Iterable[_]]: W[V[T]] = W[V[T]]{
+  implicit def SeqishW[T, V[_]](implicit v: V[_] <:< Iterable[_], w: W[T]): W[V[T]] = W[V[T]]{
     (x: V[T]) => Js.Arr(x.iterator.asInstanceOf[Iterator[T]].map(writeJs(_)).toArray:_*)
   }
 
@@ -203,18 +206,20 @@ trait Implicits extends Types { imp: Generated =>
   }
 
   implicit val InfiniteW = W[Duration.Infinite](DurationW.write)
-  implicit val InfiniteR = R[Duration.Infinite]{
+  implicit val InfiniteR = R[Duration.Infinite]{Internal.validate("DurationString"){
     case Js.Str("inf") => Duration.Inf
     case Js.Str("-inf") => Duration.MinusInf
     case Js.Str("undef") => Duration.Undefined
-  }
+  }}
 
   implicit val FiniteW = W[FiniteDuration](DurationW.write)
-  implicit val FiniteR = R[FiniteDuration]{
+  implicit val FiniteR = R[FiniteDuration]{Internal.validate("DurationString"){
     case x: Js.Str => Duration.fromNanos(x.value.toLong)
-  }
+  }}
 
-  implicit val DurationR = R[Duration](Internal.validate("DurationString"){FiniteR.read orElse InfiniteR.read})
+  implicit val DurationR = R[Duration](Internal.validate("DurationString"){
+    FiniteR.read orElse InfiniteR.read
+  })
 
   implicit def UuidR: R[UUID] = R[UUID]{case Js.Str(s) => UUID.fromString(s)}
   implicit def UuidW: W[UUID] = W[UUID]{case t: UUID => Js.Str(t.toString)}

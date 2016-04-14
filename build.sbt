@@ -2,8 +2,8 @@ crossScalaVersions := Seq("2.10.4", "2.11.6")
 
 val settings = Seq(
   organization := "com.lihaoyi",
-  version := repo.version,
-  scalaVersion := "2.11.6",
+  version := upicklePPrint.Constants.version,
+  scalaVersion := "2.11.8",
 
   scalacOptions := Seq("-unchecked","-deprecation","-encoding", "utf8","-feature"),
   // Sonatype
@@ -14,7 +14,7 @@ val settings = Seq(
   testFrameworks += new TestFramework("utest.runner.Framework"),
   libraryDependencies ++= Seq(
     "com.lihaoyi" %% "acyclic" % "0.1.2" % "provided",
-    "com.lihaoyi" %%% "utest" % "0.3.1" % "test",
+    "com.lihaoyi" %%% "utest" % "0.4.3" % "test",
     "org.scala-lang" % "scala-reflect" % scalaVersion.value % "provided",
     "org.scala-lang" % "scala-compiler" % scalaVersion.value % "provided"
   ) ++ (
@@ -23,12 +23,8 @@ val settings = Seq(
       "org.scalamacros" %% s"quasiquotes" % "2.0.0" % "provided",
       compilerPlugin("org.scalamacros" % s"paradise" % "2.1.0-M5" cross CrossVersion.full)
     )
-    ),
-  unmanagedSourceDirectories in Compile ++= {
-    if (scalaVersion.value startsWith "2.10.") Seq(baseDirectory.value / ".."/"shared"/"src"/ "main" / "scala-2.10")
-    else Seq(baseDirectory.value / ".."/"shared" / "src"/"main" / "scala-2.11")
-  },
-  scalaJSStage in Global := FastOptStage,
+  ),
+  scalaJSStage in Global := FullOptStage,
   autoCompilerPlugins := true,
 //  scalacOptions += "-Xlog-implicits",
   addCompilerPlugin("com.lihaoyi" %% "acyclic" % "0.1.2"),
@@ -115,12 +111,20 @@ val upickle = crossProject
         s"-P:scalajs:mapSourceURI:$a->$g/v${version.value}/"
       }))
   ).jvmSettings(
-    libraryDependencies += "org.spire-math" %% "jawn-parser" % "0.7.0"
+    libraryDependencies += "org.spire-math" %% "jawn-parser" % "0.8.3"
   )
 
-lazy val upickleJS = upickle.js
+lazy val upickleJS = upickle.js.settings(
+   scalaJSUseRhino in Global := false
+)
 lazy val upickleJVM = upickle.jvm
-
+lazy val test = project
+  .in(file("test"))
+  .dependsOn(upickleJVM, pprintJVM, deriveJVM % "compile->compile;test->test;test->compile;compile->test")
+  .settings(
+    settings,
+    scalaVersion := "2.11.8"
+  )
 
 lazy val pprint = crossProject
   .dependsOn(derive % "compile->compile;test->test")
@@ -128,8 +132,10 @@ lazy val pprint = crossProject
   .settings(
     name := "pprint",
     libraryDependencies ++= Seq(
+      "com.lihaoyi" %%% "sourcecode" % "0.1.1",
       "org.scala-lang" % "scala-compiler" % scalaVersion.value % "provided",
-      "com.chuusai" %% "shapeless" % "2.2.3" % "test" 
+      "com.chuusai" %% "shapeless" % "2.2.3" % "test" ,
+      "org.tpolecat" %% "doobie-core" % "0.2.3" % "test"
     ),
     sourceGenerators in Compile <+= sourceManaged in Compile map { dir =>
       val file = dir/"pprint"/"PPrintGen.scala"
@@ -174,7 +180,7 @@ lazy val pprint = crossProject
   )
   .jvmSettings(
     libraryDependencies ++= Seq(
-      "org.spire-math" %% "spire" % "0.10.1" % "test",
+      "org.spire-math" %% "spire" % "0.11.0" % "test",
       "com.typesafe.akka" %% "akka-http-experimental" % "1.0-M3" % "test",
       "com.twitter" %% "finagle-httpx" % "6.26.0" % "test"
     )
@@ -192,7 +198,7 @@ lazy val upickleReadme= scalatex.ScalatexReadme(
   url = "https://github.com/lihaoyi/upickle/tree/master",
   source = "Readme"
 ).settings(
-  (unmanagedSources in Compile) += baseDirectory.value/".."/"project"/"repo.scala"
+  (unmanagedSources in Compile) += baseDirectory.value/".."/"project"/"Constants.scala"
 )
 
 lazy val pprintReadme = scalatex.ScalatexReadme(
@@ -201,5 +207,5 @@ lazy val pprintReadme = scalatex.ScalatexReadme(
   url = "https://github.com/lihaoyi/upickle/tree/master",
   source = "Readme"
 ).settings(
-  (unmanagedSources in Compile) += baseDirectory.value/".."/"project"/"repo.scala"
+  (unmanagedSources in Compile) += baseDirectory.value/".."/"project"/"Constants.scala"
 )

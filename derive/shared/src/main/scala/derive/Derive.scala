@@ -1,4 +1,5 @@
 package derive
+
 import ScalaVersionStubs._
 import acyclic.file
 import scala.annotation.StaticAnnotation
@@ -26,6 +27,7 @@ trait DeriveApi[M[_]]{
 abstract class Derive[M[_]] extends DeriveApi[M]{
   case class TypeKey(t: c.Type) {
     override def equals(o: Any) = t =:= o.asInstanceOf[TypeKey].t
+    override def hashCode: Int = t.typeSymbol.fullName.hashCode
   }
   import c.universe._
   import compat._
@@ -74,9 +76,13 @@ abstract class Derive[M[_]] extends DeriveApi[M]{
       for{
         subtypeSym <- tpe.typeSymbol.asClass.knownDirectSubclasses.filter(!_.toString.contains("<local child>"))
         if subtypeSym.isType
+        st = subtypeSym.asType.toType
+        baseClsArgs = st.baseType(tpe.typeSymbol).asInstanceOf[TypeRef].args
+        // If the type arguments don't line up, just give up and fail to find
+        // the subclasses. It should fall back to plain-old-toString
+        if baseClsArgs.size == tpe.args.size
       } yield {
-        val st = subtypeSym.asType.toType
-        val baseClsArgs = st.baseType(tpe.typeSymbol).asInstanceOf[TypeRef].args
+
         val sub2 = st.substituteTypes(baseClsArgs.map(_.typeSymbol), tpe.args)
         //        println(Console.YELLOW + "sub2 " + Console.RESET + sub2)
         sub2
@@ -142,6 +148,7 @@ abstract class Derive[M[_]] extends DeriveApi[M]{
                 Map(key -> name) ++
                 subTypes.flatMap(rec(_)) ++
                 args.flatMap(rec(_))
+
               lol
             case tpe if tpe.typeSymbol.isModuleClass =>
 //              println(Console.CYAN + "<Singleton>" + Console.RESET + tpe)
@@ -193,10 +200,12 @@ abstract class Derive[M[_]] extends DeriveApi[M]{
                 case _ =>
                   Seq.empty[Tree]
               }
+              val classTagImplicit = freshName
+              val classTagImplicitType = c.fresh[TypeName]("derive")
               // Hard-code availability of ClassTags to make array serialization work
               val probe = q"""{
                 ..$dummies;
-                implicit def x[T]: reflect.ClassTag[T] = ???;
+                implicit def $classTagImplicit[$classTagImplicitType]: reflect.ClassTag[$classTagImplicitType] = ???;
                 ${implicited(tpe)}
               }"""
 //              println("TC " + name + " " + probe)
@@ -224,7 +233,7 @@ abstract class Derive[M[_]] extends DeriveApi[M]{
 
         val things = recTypes.map { case (TypeKey(tpe), name) =>
           val pick =
-            if (tpe.typeSymbol.asClass.isTrait) deriveTrait(tpe)
+            if (tpe.typeSymbol.asClass.isTrait || (tpe.typeSymbol.asClass.isAbstractClass && !tpe.typeSymbol.isJava)) deriveTrait(tpe)
             else if (tpe.typeSymbol.isModuleClass) deriveObject(tpe)
             else deriveClass(tpe)
 
@@ -243,17 +252,25 @@ abstract class Derive[M[_]] extends DeriveApi[M]{
         // symbol variable bitmap$0 does not exist in derive.X.<init>
         // scala.reflect.internal.FatalError: symbol variable bitmap$0 does not exist in derive.X.<init>
         // """
-        val res = q"""{
-        def $returnName = {
+        //
+        // Dump it in an anonymous class to avoid https://issues.scala-lang.org/browse/SI-8775,
+        // which results in this other weird crash
+        //
+        // Implementation restriction: access of value derive$macro$2$1 from <$anon: Function0>,
+        // would require illegal premature access to the unconstructed `this` of class Something
+        // in object Main
+        val res = q"""
+        (new {
           ..$things
-
-          ${
-            recTypes.mapValues(x => q"$x")
-                    .getOrElse(TypeKey(tpe), fail(tpe, "Couldn't derive type " + tpe))
+          def $returnName = {
+            ${
+              recTypes.mapValues(x => q"$x")
+                      .getOrElse(TypeKey(tpe), fail(tpe, "Couldn't derive type " + tpe))
+            }
           }
-        }
-        $returnName
-      }"""
+
+        }).$returnName
+        """
 //            println("RES " + res)
         res
       case t => t
@@ -287,7 +304,6 @@ abstract class Derive[M[_]] extends DeriveApi[M]{
     getArgSyms(tpe) match {
       case Left(msg) => fail(tpe, msg)
       case Right((companion, typeParams, argSyms)) =>
-
 
         //    println("argSyms " + argSyms.map(_.typeSignature))
         val args = argSyms.map { p =>
@@ -377,6 +393,9 @@ abstract class Derive[M[_]] extends DeriveApi[M]{
 
   def getArgSyms(tpe: c.Type) = {
     companionTree(tpe).right.flatMap { companion =>
+      //tickle the companion members -- Not doing this leads to unexpected runtime behavior
+      //I wonder if there is an SI related to this?
+      companion.tpe.members.foreach(_ => ())
       tpe.members.find(x => x.isMethod && x.asMethod.isPrimaryConstructor) match {
         case None => Left("Can't find primary constructor of " + tpe)
         case Some(primaryConstructor) => Right((companion, tpe.typeSymbol.asClass.typeParams, primaryConstructor.asMethod.paramss.flatten))

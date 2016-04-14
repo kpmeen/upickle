@@ -33,6 +33,7 @@ private[upickle] trait GeneratedUtil {
     Js.Obj(accumulated.filter(_ != null):_*)
 
   }
+
   protected[this] def mapToArray(o: Js.Obj, names: Array[String], defaults: Array[Js.Value]) = {
 
 //    println("o",o,"names",names.mkString(","),"defaults",defaults.toList)

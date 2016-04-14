@@ -34,7 +34,7 @@ object Hierarchy {
   case object AnZ extends Z //new line
 }
 object DeepHierarchy {
-  sealed trait A
+  sealed abstract class A
   case class B(i: Int) extends A
 
   sealed trait C extends A
@@ -190,4 +190,73 @@ object Issue96{
   sealed trait Field { }
 
   case class ChoiceField(choices: Array[String]) extends Field
+}
+
+sealed trait Ast{
+  def offset: Int
+}
+
+/**
+ * Sample AST taken from the Scalatex project
+ *
+ * https://github.com/lihaoyi/Scalatex/
+ *
+ * It's a use case where each case class inherits from multiple distinct
+ * sealed traits, which aren't a strict hierarchy
+ */
+object Ast{
+
+  /**
+   * @param parts The various bits of text and other things which make up this block
+   * @param offset
+   */
+  case class Block(offset: Int, parts: Seq[Block.Sub]) extends Chain.Sub with Block.Sub
+  object Block{
+    sealed trait Sub extends Ast
+    case class Text(offset: Int, txt: String) extends Block.Sub
+    case class For(offset: Int, generators: String, block: Block) extends Block.Sub
+    case class IfElse(offset: Int, condition: String, block: Block, elseBlock: Option[Block]) extends Block.Sub
+  }
+  case class Header(offset: Int, front: String, block: Block) extends Block.Sub with Chain.Sub
+
+  /**
+   * @param lhs The first expression in this method-chain
+   * @param parts A list of follow-on items chained to the first
+   * @param offset
+   */
+  case class Chain(offset: Int, lhs: String, parts: Seq[Chain.Sub]) extends Block.Sub
+  object Chain{
+    sealed trait Sub extends Ast
+    case class Prop(offset: Int, str: String) extends Sub
+    case class TypeArgs(offset: Int, str: String) extends Sub
+    case class Args(offset: Int, str: String) extends Sub
+  }
+}
+
+
+/**
+ * Sample AST from the FastParse PythonParse project. Doesn't work yet
+ *
+ * A python abstract syntax tree
+ *
+ * Basically transcribed from https://docs.python.org/2/library/ast.html
+ */
+object PythonAst{
+
+  sealed trait expr
+  object expr{
+    case class BoolOp(op: Int, values: expr) extends expr
+    case class Yield(value: Option[expr]) extends expr
+    case class Compare(left: expr, comparators: Seq[expr]) extends expr
+    case class Call(func: expr, starargs: Option[expr]) extends expr
+    case class List(elts: Seq[expr], ctx: expr_context) extends expr
+  }
+
+  sealed trait expr_context
+  object expr_context{
+
+    case object Load extends expr_context
+
+  }
+
 }
